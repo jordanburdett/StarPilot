@@ -82,16 +82,16 @@ def firmware(candidate=CAR.TOYOTA_COROLLA_TSS2):
   ]
 
 
-def physical(packer, *, cruise, main=True, gear=0, brake=False, gas=False, eps=1, sdsu=0, stopped=False):
+def physical(packer, *, dsu_main=False, cruise, main=True, gear=0, brake=False, gas=False, eps=1, sdsu=0, stopped=False):
   frames = [
     packer.make_can_msg(name, 0, {})
-    for name in ('VSC1S07', 'BODY_CONTROL_STATE_2', 'ESP_CONTROL', 'PCM_CRUISE_SM', 'BLINKERS_STATE', 'PRE_COLLISION', 'LIGHT_STALK')
+    for name in ('VSC1S07', 'BODY_CONTROL_STATE_2', 'ESP_CONTROL', 'BLINKERS_STATE', 'PRE_COLLISION', 'LIGHT_STALK')
   ]
   frames += [
     packer.make_can_msg('BODY_CONTROL_STATE', 0, {'SEATBELT_DRIVER_UNLATCHED': 0}),
     packer.make_can_msg('BRAKE_MODULE', 0, {'BRAKE_PRESSED': brake}),
     packer.make_can_msg('GEAR_PACKET', 0, {'GEAR': gear}),
-    packer.make_can_msg('WHEEL_SPEEDS', 0, {f'WHEEL_SPEED_{w}': 0.0 if stopped else 18.0 for w in ('FL', 'FR', 'RL', 'RR')}),
+    packer.make_can_msg('WHEEL_SPEEDS', 0, {f'WHEEL_SPEED_{w}': 0.0 if stopped else 72.0 if dsu_main else 18.0 for w in ('FL', 'FR', 'RL', 'RR')}),
     packer.make_can_msg('PCM_CRUISE', 0, {'CRUISE_ACTIVE': cruise, 'GAS_RELEASED': not gas, 'CRUISE_STATE': 7 if cruise and stopped else 8 if cruise else 0}),
     packer.make_can_msg('PCM_CRUISE_2', 0, {'MAIN_ON': main, 'SET_SPEED': 90}),
     packer.make_can_msg('STEER_ANGLE_SENSOR', 0, {}),
@@ -100,6 +100,12 @@ def physical(packer, *, cruise, main=True, gear=0, brake=False, gas=False, eps=1
     packer.make_can_msg('LKAS_HUD', 2, {}),
     packer.make_can_msg('RSA1', 2, {}),
   ]
+  if dsu_main:
+    frames += [packer.make_can_msg('PCM_CRUISE_ALT', 0, {}), packer.make_can_msg('DSU_CRUISE', 0, {'MAIN_ON': main, 'SET_SPEED': 90})]
+    # This source must not revive or withdraw DSU-owned MAIN.
+    frames = [f for f in frames if f[0] != 0x1D3] + [packer.make_can_msg('PCM_CRUISE_2', 0, {'MAIN_ON': not main})]
+  else:
+    frames.append(packer.make_can_msg('PCM_CRUISE_SM', 0, {}))
   frames += [packer.make_can_msg('ACC_CONTROL', 2, {'ACC_TYPE': 1}), packer.make_can_msg('PCS_HUD', 2, {}), packer.make_can_msg('PRE_COLLISION', 2, {})]
   return frames
 
@@ -195,7 +201,7 @@ def control_inputs(controls, published, state, sd_events, native, now):
       values.append(sd_events[name])
     elif name == 'carState':
       values.append(state['carState'])
-    elif name == 'aolSafetyWire':
+    elif name in ('aolSafetyWire', 'pandaStates'):
       values.append(next(e for e in native if e.which() == name))
     elif name in published:
       values.append(published[name])
@@ -211,6 +217,8 @@ def control_inputs(controls, published, state, sd_events, native, now):
       v = getattr(e, name)
       if name == 'modelV2':
         v.from_dict(model().to_dict())
+      elif name == 'lateralManeuverPlan' and controls.CP.carFingerprint == CAR.LEXUS_IS:
+        v.desiredCurvature = .00005  # Synthetic plan exercises nonzero encoded steering.
       elif name == 'vehicleParameters':
         v.stiffnessFactor, v.steerRatio = 1.0, controls.CP.steerRatio
       elif name == 'longitudinalPlan':
@@ -249,7 +257,8 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
     ):
       host = card_module.Car()
     assert host.CP.openpilotLongitudinalControl == (not stock)
-    assert host.CP.safetyConfigs[0].safetyParam == (0x2249 if stock else 0x2049)
+    dsu_main = candidate == CAR.LEXUS_IS
+    assert host.CP.safetyConfigs[0].safetyParam == (0x424D if dsu_main else 0x2249 if stock else 0x2049)
     assert host.CP.alternativeExperience == 32
     controls, sd = Controls(), sd_module.SelfdriveD(CP=host.CP)
     assert controls.CP.to_dict() == host.CP.to_dict()
@@ -281,13 +290,17 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
       )
     )
     rows = {r.key: r for r in wheel.rows()}
-    assert 'Bookmark' in rows['wheel:LKASButtonControl'].choices
-    assert 'Toggle AOL' not in rows['wheel:LKASButtonControl'].choices
+    if dsu_main:
+      assert 'wheel:LKASButtonControl' not in rows
+    else:
+      assert 'Bookmark' in rows['wheel:LKASButtonControl'].choices
+      assert 'Toggle AOL' not in rows['wheel:LKASButtonControl'].choices
     assert not any('Cancel' in k or 'MainCruise' in k for k in rows)
     assert display_supported(host.CP) and longitudinal_supported(host.CP) == (not stock)
     params.put('CancelButtonControl', 9, block=True)  # Unsupported saved remap cannot steal MAIN/physical Cancel ownership.
     seen_active = False
     seen_pedal = False
+    seen_steer = False
     clock = [time.monotonic_ns()]
     # Deterministic input-time vector for the three serially hosted daemon methods.
     # Keep the real-time nominal/physical/OFF receipts separate; no scheduling/road claim here.
@@ -320,8 +333,15 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
           )
         elif scenario == 'off' and tick == 250:
           params.put_bool('DisableOpenpilotLongitudinal', not stock, block=True)
-        frames = physical(packer, **fields)
-        if fields.get('sdsu', 0) is not None:
+        if dsu_main and fields.get('sdsu'):
+          fields['eps'] = 9
+        frames = physical(packer, dsu_main=dsu_main, **fields)
+        if dsu_main and fields.get('sdsu', 0) is None:
+          if scenario == 'bad_dlc':
+            frames = [(a, d + bytes(1) if a == 0x365 else d, b) for a, d, b in frames]
+          else:
+            frames = [f for f in frames if f[0] != 0x365]
+        if not dsu_main and fields.get('sdsu', 0) is not None:
           sensor = packer.make_can_msg(
             'GAS_SENSOR',
             0,
@@ -419,7 +439,10 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
           if 415 <= tick < 430:
             assert not cc.latActive and not cc.longActive, trace[-1]
         if scenario in ('faults', 'bad_dlc'):
-          if any(a <= tick < b for a, b in ((260, 269), (330, 339), (465, 469), (650, 661))):
+          dropout = ((635, 665) if scenario == 'bad_dlc' else (662, 665)) if dsu_main else (650, 661)
+          if dsu_main and scenario != 'bad_dlc' and 650 <= tick < 656:
+            assert cc.latActive, ('DSU MAIN is still inside its existing 303 ms lease', trace[-1])
+          if any(a <= tick < b for a, b in ((260, 269), (330, 339), (465, 469), dropout)):
             assert not cc.latActive and not cc.longActive, trace[-1]
           if 350 <= tick < 356:
             assert cc.latActive and not cc.longActive, ('cleared EPS must not automatically reengage ordinary LONG', trace[-1])
@@ -428,7 +451,7 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
         if scenario == 'off' and tick >= 310:
           if stock:
             assert not host.CP.openpilotLongitudinalControl and not cc.longActive
-            assert host.CP.safetyConfigs[0].safetyParam == 0x2249
+            assert host.CP.safetyConfigs[0].safetyParam == (0x424D if dsu_main else 0x2249)
           else:
             assert not host.CI.CC.pedal_input.update(time.monotonic_ns())
             for f in outgoing.sendcan:
@@ -437,6 +460,11 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
                 assert acc['ACCEL_CMD'] == 0 and acc['CANCEL_REQ'] and not acc['RELEASE_STANDSTILL']
 
         for frame in outgoing.sendcan:
+          if dsu_main and frame.address == 0x2E4:
+            steer = decode(host.CP, (frame.address, bytes(frame.dat), frame.src), 'STEERING_LKA')
+            if steer['STEER_TORQUE_CMD'] != 0:
+              assert cc.latActive and steer['STEER_REQUEST']
+              seen_steer = True
           if frame.address == 0x200:
             data = bytes(frame.dat)
             assert len(data) == 6 and data[5] == pedal.checksum(data)
@@ -449,6 +477,8 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
         prev = current_sd
       assert seen_active
       assert seen_pedal == (not stock)
+      if dsu_main:
+        assert seen_steer, "Actual nonzero steering must reach the fresh native TX hook"
     finally:
       (OUT / (str(candidate) + '-actual-' + scenario + ('-stock-trace.json' if stock else '-long-trace.json'))).write_text(json.dumps(trace, indent=2) + '\n')
       safety.set_alternative_experience(0)

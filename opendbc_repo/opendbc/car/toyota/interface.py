@@ -52,6 +52,8 @@ class CarInterface(CarInterfaceBase):
     ret.brand = "toyota"
     ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.toyota)]
     ret.safetyConfigs[0].safetyParam = EPS_SCALE[candidate]
+    if candidate == CAR.LEXUS_IS:
+      ret.safetyConfigs[0].safetyParam |= int(ToyotaSafetyFlags.ALT_CRUISE)
 
     # BRAKE_MODULE is on a different address for these cars
     if DBC[candidate][Bus.pt] == "toyota_new_mc_pt_generated":

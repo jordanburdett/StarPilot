@@ -97,7 +97,7 @@ int main() {
   }
 
   for (uint32_t word = 0U; word <= 65535U; ++word) {
-    const bool expected = (word == 73U) || (word == 585U) || (word == 4169U) || (word == 4681U) || (word == 2121U) || (word == 0x9049U) || (word == 0x9249U) || (word == 0x2049U) || (word == 0x2249U);
+    const bool expected = (word == 73U) || (word == 585U) || (word == 4169U) || (word == 4681U) || (word == 2121U) || (word == 0x9049U) || (word == 0x9249U) || (word == 0x2049U) || (word == 0x2249U) || (word == 0x424DU);
     auto toyota = status();
     toyota.safety_mode = 2U;
     toyota.safety_param = static_cast<uint16_t>(word);

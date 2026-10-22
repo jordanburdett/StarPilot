@@ -546,6 +546,7 @@ class OnroadView:
     self._corner_cache.close()
     self.navigation.close()
     if self.fonts.profile == Profile.LARGE:
+      self.unified_speed.close()
       self.steering_wheel.close()
     else:
       self.compact_hud.close()

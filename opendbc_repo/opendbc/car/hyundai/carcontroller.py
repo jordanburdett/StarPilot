@@ -174,6 +174,9 @@ class CarController(CarControllerBase):
     if self.CP.carFingerprint == CAR.KIA_EV6_2025 and self.CP.dashcamOnly:
       return actuators.as_builder(), []
     hud_control = CC.hudControl
+    # Card finalizes the AOL safety marker after CarInterface constructs us.
+    if self.classic_dash_icons is None and self.CP.carFingerprint != CAR.KIA_RAY_EV and qualified_classic_stock_aol(self.CP, marked_only=True):
+      self.classic_dash_icons = CanFDDashIcons()
     if self.classic_dash_icons is not None:
       self.classic_lfa_icon = self.classic_dash_icons.update(self.frame, CC.enabled, CC.latActive)
     if self.CP.carFingerprint == CAR.KIA_RAY_EV:

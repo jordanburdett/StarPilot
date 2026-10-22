@@ -2,6 +2,7 @@
 
 static bool toyota_aol_enabled = false;
 static bool toyota_pedal = false;
+static bool toyota_alt_cruise = false;
 
 static bool toyota_aol_secoc = false;
 static bool toyota_aol_stock = false;
@@ -58,10 +59,17 @@ static uint8_t toyota_aol_permission(void) {
 
 static void toyota_aol_observe(const CANPacket_t *msg) {
   const uint32_t gear_addr = toyota_aol_secoc ? 0x127U : 0x3BCU;
-  const unsigned int expected_len = (toyota_aol_rav4h_filter && (msg->addr == 0x262U)) ? 5U : 8U;
+  const uint32_t main_addr = toyota_alt_cruise ? 0x365U : 0x1D3U;
+  unsigned int expected_len = 8U;
+  if (toyota_alt_cruise && (msg->addr == main_addr)) {
+    expected_len = 7U;
+  } else if ((toyota_aol_rav4h_filter || toyota_alt_cruise) && (msg->addr == 0x262U)) {
+    expected_len = 5U;
+  } else {
+  }
   if (toyota_aol_enabled && (msg->bus == 0U) && (GET_LEN(msg) != expected_len)) {
     unsigned int index = 4U;
-    if (msg->addr == 0x1D3U) {
+    if (msg->addr == main_addr) {
       index = 0U;
     } else if (msg->addr == gear_addr) {
       index = 1U;
@@ -76,9 +84,9 @@ static void toyota_aol_observe(const CANPacket_t *msg) {
     }
   } else if (toyota_aol_enabled && (msg->bus == 0U) && (GET_LEN(msg) == expected_len)) {
     unsigned int index = 4U;
-    if (msg->addr == 0x1D3U) {
+    if (msg->addr == main_addr) {
       index = 0U;
-      toyota_aol_main = GET_BIT(msg, 15U) && !GET_BIT(msg, 47U);
+      toyota_aol_main = toyota_alt_cruise ? GET_BIT(msg, 0U) : (GET_BIT(msg, 15U) && !GET_BIT(msg, 47U));
     } else if (msg->addr == gear_addr) {
       index = 1U;
       if (toyota_aol_secoc) {
@@ -109,9 +117,10 @@ static void toyota_aol_observe(const CANPacket_t *msg) {
 
 static void toyota_aol_configure(uint16_t param) {
   toyota_aol_reset();
+  toyota_alt_cruise = param == 0x424DU;
   toyota_pedal = (param == 0x2049U) || (param == 0x2249U);
   toyota_aol_rav4h_filter = (param == 0x9049U) || (param == 0x9249U);
-  toyota_aol_stock = (param == 585U) || (param == 4681U) || (param == 0x9249U) || (param == 0x2249U);
+  toyota_aol_stock = (param == 585U) || (param == 4681U) || (param == 0x9249U) || (param == 0x2249U) || toyota_alt_cruise;
 #ifdef ALLOW_DEBUG
   toyota_aol_secoc = (param == 2121U);
 #else

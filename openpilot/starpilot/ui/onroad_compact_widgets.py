@@ -170,6 +170,7 @@ class CompactHudRenderer:
                           rl.Color(*color, int(wheel_alpha)))
 
   def close(self) -> None:
+    self._speed_limit_widget.close()
     if self._wheel is not None and rl.is_window_ready():
       rl.unload_texture(self._wheel)
     self._wheel = None

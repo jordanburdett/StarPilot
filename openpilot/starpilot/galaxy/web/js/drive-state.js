@@ -54,7 +54,7 @@ export const DriveStatePanel = {
       finally { clearTimeout(deadline); this.busy = false; if (this.active && generation === this.generation) this.load() }
     },
   },
-  template: `<section class="gx-card gx-force-drive" aria-label="Force Drive State" :inert="busy" :aria-busy="busy || undefined"><h3>Force Drive State</h3>
+  template: `<section class="gx-card gx-force-drive" aria-label="Force Drive State" :inert="busy" :aria-busy="busy || undefined"><div class="gx-section__header"><i class="bi bi-car-front" aria-hidden="true"></i><span class="gx-section__title">Force Drive State</span></div><div class="gx-panel">
     <GxNotice tone="danger" v-if="error">{{ error }}</GxNotice>
     <GxNotice tone="danger" v-if="state && !state.available">The drive-state manager is unavailable. Reconnect to check again.</GxNotice>
     <GxNotice v-if="pending" tone="info">Waiting for the device to switch {{ state.mode }}…</GxNotice>
@@ -64,5 +64,5 @@ export const DriveStatePanel = {
       class="gx-btn" :class="state?.mode === mode ? '' : 'gx-btn--tonal'"
       :disabled="!state?.available"
       :aria-pressed="state?.mode === mode" @click="change(mode)">{{ mode === 'auto' ? 'Return to Auto' : 'Onroad' }}</button></div>
-    </section>`,
+    </div></section>`,
 }

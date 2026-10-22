@@ -184,3 +184,17 @@ assert.match(FlmPage.template, /Future trial episodes/)
 assert.match(FlmPage.template, /Passing future checks does not itself confirm/)
 assert.doesNotMatch(FlmPage.template, /v-html/)
 console.log('Optional versioned FLM tracking report, paired observed metrics, honest trial acknowledgements and old report compatibility passed')
+
+const render = compile(FlmPage.template, { onError: e => { throw e }, decodeEntities: v => v.replaceAll('&amp;', '&') })
+const ctx = { ...FlmPage.data(), ...FlmPage.methods, mode:'local', embedded:true, unauthorized() {},
+ report:{version:1,history:[],current:{fresh:true,ageSeconds:0,enabled:true,status:'collecting',reason:'invalid_applied_output',progress:{samples:0,blocks:0,requiredBlocks:16},fit:null,application:{applied:false,reason:'no_current_controller_application'},details:{},tracking:{version:1,status:'collecting',reason:'uncensored_independent_comparison_baseline_required',group:null,names:[],trialId:null,phase:null,requiredEpisodes:null,beforeEpisodes:0,futureEpisodes:0,modelStatus:'valid',lagMs:170,baselineErrorRms:null,futureErrorRms:null,baselineReversalHz:null,futureReversalHz:null,applicationAcknowledged:false,applicationSettledMonoTime:null,lastCorrectionMonoTime:null,bindingCurrent:true}}}}
+for (const [name,get] of Object.entries(FlmPage.computed)) Object.defineProperty(ctx,name,{get:()=>get.call(ctx)})
+const text = vnode => typeof vnode === 'string' ? vnode : Array.isArray(vnode) ? vnode.map(text).join(' ') : vnode && typeof vnode === 'object' ? text(vnode.children) : ''
+const liveText = text(render.call(ctx,ctx,[]))
+assert(!liveText.toLowerCase().includes('invalid applied output'), 'Live learner must not display the independent legacy collector failure as its current state')
+assert(!liveText.includes('Collection & fitting'), 'Legacy fitter cards must not describe the live empirical learner')
+delete ctx.report.current.tracking
+const legacyText = text(render.call(ctx,ctx,[]))
+assert(legacyText.toLowerCase().includes('invalid applied output'))
+assert(legacyText.includes('Collection & fitting'))
+console.log('Actual Vue render keeps live learner progress separate and preserves legacy report fallback')

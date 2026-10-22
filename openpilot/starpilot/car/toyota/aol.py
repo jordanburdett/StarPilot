@@ -5,7 +5,7 @@ from opendbc.car.toyota.values import CAR, ToyotaFlags, ToyotaSafetyFlags, EPS_S
 from openpilot.starpilot.aol.policy import AolVehiclePolicy
 from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE
 
-AOL_WORDS = frozenset((73, 585, 4169, 4681, 2121, 0x9049, 0x9249, 0x2049, 0x2249))
+AOL_WORDS = frozenset((73, 585, 4169, 4681, 2121, 0x9049, 0x9249, 0x2049, 0x2249, 0x424D))
 
 
 SECOC_TORQUE_CARS = frozenset((CAR.TOYOTA_SIENNA_4TH_GEN,))
@@ -33,7 +33,21 @@ def secoc_qualified(cp, *, marked_only=False):
           config.safetyParam == EPS_SCALE[cp.carFingerprint] | int(ToyotaSafetyFlags.SECOC))
 
 
+def lexus_is_qualified(cp, *, marked_only=False):
+  if (cp is None or cp.brand != 'toyota' or cp.carFingerprint != CAR.LEXUS_IS or
+      cp.notCar or cp.passive or cp.dashcamOnly or not cp.pcmCruise or cp.openpilotLongitudinalControl or
+      cp.steerControlType != structs.CarParams.SteerControlType.torque or len(cp.safetyConfigs) != 1 or
+      cp.flags & ToyotaFlags.UNSUPPORTED_DSU == 0 or
+      int(cp.flags) & ~int(ToyotaFlags.UNSUPPORTED_DSU | ToyotaFlags.HYBRID) or
+      cp.alternativeExperience not in ((32,) if marked_only else (0, 32))):
+    return False
+  config = cp.safetyConfigs[0]
+  return config.safetyModel == structs.CarParams.SafetyModel.toyota and config.safetyParam == 0x424D
+
+
 def qualified(cp, *, marked_only=False):
+  if lexus_is_qualified(cp, marked_only=marked_only):
+    return True
   from opendbc.car.toyota import pedal
   if pedal.configured(cp):
     return cp.alternativeExperience in ((32,) if marked_only else (0, 32))

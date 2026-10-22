@@ -923,6 +923,9 @@ class LiveTrackingOptimizer:
     # each cohort once per proposal call, not once for every group. This local
     # memo never survives a new observation, binding, source or profile.
     matched_cohorts = {}
+    # Completed episodes are immutable and validated with distinct hook names.
+    # Index only for this selection call; no source/permission cache survives it.
+    features = {id(row): {item.name: item for item in row.sensitivity} for row in self.baseline}
     for group, names in GROUPS.items():
       examined = set()
       for episode in reversed(self.baseline):
@@ -947,21 +950,18 @@ class LiveTrackingOptimizer:
             row
             for row in matched
             if row.native_gradient_complete
-            and any(
-              feature.name == name
-              and feature.native_gradient_complete
-              and feature.feature_energy > 1e-10
-              and feature.native_endpoints >= 4
-              and feature.native_separated / feature.native_endpoints >= 0.09
-              for feature in row.sensitivity
-            )
+            and (feature := features[id(row)].get(name)) is not None
+            and feature.native_gradient_complete
+            and feature.feature_energy > 1e-10
+            and feature.native_endpoints >= 4
+            and feature.native_separated / feature.native_endpoints >= 0.09
           )
           rows, minimum = _discovery_support(rows, episode.kind, self.rmse)
           if not rows:
             continue
           estimates: list[float] = []
           for row in rows:
-            feature = next((item for item in row.sensitivity if item.name == name), None)
+            feature = features[id(row)].get(name)
             if feature is None or feature.feature_energy <= 1e-10 or feature.native_endpoints < 4 or feature.native_separated / feature.native_endpoints < 0.09:
               break
             estimates.append(feature.error_feature_sum / feature.feature_energy)
@@ -1006,7 +1006,7 @@ class LiveTrackingOptimizer:
           if self.rmse is None and self._same_inconclusive_trial(name, sign, rows[-1], now_ns):
             continue
           delta = sign * min(MAX_STEP, 0.1 * confidence)
-          predicted = min(next(item.max_step_physical_rms for item in row.sensitivity if item.name == name) for row in rows)
+          predicted = min(features[id(row)][name].max_step_physical_rms for row in rows)
           expected = predicted * abs(delta) / MAX_STEP / max(_score_scale(row) for row in rows)
           if expected <= 0.0001:
             continue  # The original native effect must be visible.
@@ -1020,7 +1020,7 @@ class LiveTrackingOptimizer:
             continue
           expected *= abs(target[name] - self.accepted[name]) / abs(delta)
           self.ready_since.setdefault(group, now_ns)
-          benefit = sum(abs(next(item.error_feature_sum for item in row.sensitivity if item.name == name)) for row in rows)
+          benefit = sum(abs(features[id(row)][name].error_feature_sum) for row in rows)
           allocation = self._comparison_allocation(episode, expected, target, minimum_episodes=minimum)
           if allocation is not None:
             choices.append((confidence, group, name, target, rows, benefit, expected, allocation, episode))

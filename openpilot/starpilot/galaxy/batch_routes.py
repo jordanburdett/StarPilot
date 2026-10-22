@@ -2,7 +2,7 @@
 
 from openpilot.starpilot.galaxy.crash_reports import CrashChanged, CrashMissing, CrashUnavailable
 from openpilot.starpilot.galaxy.settings import SettingsChanged, SettingsUnavailable
-from openpilot.starpilot.galaxy.sentry_events import SentryEventsUnavailable
+from openpilot.starpilot.galaxy.sentry_events import ID as SENTRY_EVENT_ID, SentryEventsUnavailable
 from openpilot.starpilot.sentry_mode.notifications import NotificationUnavailable
 from openpilot.starpilot.ui.layout_preview_transport import (PreviewBusy, PreviewDenied, PreviewInvalid, PreviewUnavailable,
                                                             PROFILES as PREVIEW_PROFILES, SCENES as PREVIEW_SCENES, request_preview,
@@ -23,6 +23,8 @@ def delete_records(self, path, payload, sentry_events_lock, crash_reports_lock, 
       selected = None
     elif set(payload) == {key} and type(payload[key]) is str and payload[key]:
       selected = payload[key]
+      if sentry and SENTRY_EVENT_ID.fullmatch(selected) is None:
+        raise ValueError('Invalid event ID')
     else:
       raise ValueError('Confirm deleting all stored records')
 

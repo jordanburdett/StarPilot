@@ -303,7 +303,7 @@ def customization_metadata():
 
 
 def default_document():
-  return {"version": 9, "clock24Hour": False, "palette": dict(PALETTE), "roadColors": {profile: {} for profile in PROFILES},
+  return {"version": 10, "clock24Hour": False, "palette": dict(PALETTE), "roadColors": {profile: {} for profile in PROFILES},
           "widgetColors": {profile: {} for profile in PROFILES}, "layouts": {
     profile: {key: {**widget["default"], **({"size": WIDGET_SIZES[key][profile][1]} if key in WIDGET_SIZES else {})}
               for key, widget in data["widgets"].items()}
@@ -364,8 +364,19 @@ def _compact_action_collisions(layout):
       yield key, height
 
 
+def migrate_large_sign_layout(layout, bounds, *, widgets=None, extra_height=0):
+  widgets = PROFILES['large']['widgets'] if widgets is None else widgets
+  card, actions = layout['cruise_limits'], layout['speed_limit_actions']
+  # Only the old attached arrangement follows the sign; independently placed actions stay put.
+  paired = actions['x'] == card['x'] + 12 and actions['y'] == card['y'] + 173
+  card['y'] = min(card['y'], bounds['y'] + bounds['height'] - widgets['cruise_limits']['height'] - extra_height)
+  if paired:
+    actions['y'] = min(card['y'] + ACTION_Y - 75,
+                       bounds['y'] + bounds['height'] - widgets['speed_limit_actions']['height'])
+
+
 def validate_document(value):
-  if type(value) is not dict or type(value.get("version")) is not int or value["version"] not in range(1, 10):
+  if type(value) is not dict or type(value.get("version")) is not int or value["version"] not in range(1, 11):
     raise ValueError("Invalid customization version")
   fields = {"version", "palette", "layouts"} | ({"widgetColors"} if value["version"] >= 2 else set())
   if value["version"] >= 3:
@@ -538,6 +549,8 @@ def validate_document(value):
           dimensions = SPEED_LAYOUT_V7[profile].get(key)
         if value['version'] == 8 and profile == 'compact':
           dimensions = COMPACT_SPEED_LAYOUT_V8.get(key)
+        if dimensions is None and value['version'] < 10 and profile == 'large' and key == 'cruise_limits':
+          dimensions = (WIDTH, 132)
         dimension = (dimensions[0 if axis == 'x' else 1] if dimensions else
                      size if key in WIDGET_SIZES else placement[extent] if widget.get("box") else widget[extent])
         if old_gauge:
@@ -568,6 +581,8 @@ def validate_document(value):
     result['clock24Hour'] = value['clock24Hour']
   if 'showMaxSpeed' in value:
     result['showMaxSpeed'] = value['showMaxSpeed']
+  if value['version'] < 10:
+    migrate_large_sign_layout(result['layouts']['large'], PROFILES['large']['bounds'], extra_height=sources_extent(result))
   if value['version'] < 8:
     if value['version'] < 5 and value['palette'] != PALETTE:
       colors = result['widgetColors']['large'].setdefault('cruise_limits', {})

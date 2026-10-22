@@ -164,8 +164,8 @@ static bool toyota_get_quality_flag_valid(const CANPacket_t *msg) {
 }
 
 static void toyota_optional_rx_hook(const CANPacket_t *msg) {
-  const bool aol_checksum_source = (msg->addr == 0x1D3U) || (msg->addr == 0x262U) || (toyota_aol_secoc && (msg->addr == 0x127U));
-  const unsigned int aol_source_len = (toyota_aol_rav4h_filter && (msg->addr == 0x262U)) ? 5U : 8U;
+  const bool aol_checksum_source = (!toyota_alt_cruise && (msg->addr == 0x1D3U)) || (msg->addr == 0x262U) || (toyota_aol_secoc && (msg->addr == 0x127U));
+  const unsigned int aol_source_len = ((toyota_aol_rav4h_filter || toyota_alt_cruise) && (msg->addr == 0x262U)) ? 5U : 8U;
   if (!aol_checksum_source || ((GET_LEN(msg) == aol_source_len) && (toyota_get_checksum(msg) == toyota_compute_checksum(msg)))) {
     toyota_aol_observe(msg);
   } else if (toyota_aol_enabled && (msg->bus == 0U)) {
@@ -201,6 +201,10 @@ static void toyota_optional_rx_hook(const CANPacket_t *msg) {
 }
 
 static void toyota_rx_hook(const CANPacket_t *msg) {
+  if (toyota_alt_cruise && msg_matches(msg, 0x365U, 0U) && (GET_LEN(msg) == 7U)) {
+    acc_main_on = GET_BIT(msg, 0U);
+    toyota_aol_observe(msg);
+  }
   if (msg->bus == 0U) {
     if (toyota_pedal && (msg->addr == 0x201U) && (GET_LEN(msg) == 6U)) {
       const unsigned int gas = (((unsigned int)msg->data[0] << 8U) + msg->data[1] +
@@ -628,17 +632,17 @@ static safety_config toyota_init(uint16_t param) {
     // The alternate-brake profile differs only in this source address. Reuse
     // the same workspace; set_safety_hooks resets all active mutable status.
     toyota_lka_rx_checks[3].msg[0].addr = toyota_alt_brake ? 0x224U : 0x226U;
-    toyota_lka_rx_checks[4].msg[0] = (CanMsgCheck){.addr = toyota_pedal ? 0x201 : 0x2FF,
-      .bus = 0U, .len = toyota_pedal ? 6 : 8, .frequency = 50U,
+    toyota_lka_rx_checks[4].msg[0] = (CanMsgCheck){.addr = toyota_alt_cruise ? 0x365 : (toyota_pedal ? 0x201 : 0x2FF),
+      .bus = 0U, .len = toyota_alt_cruise ? 7 : (toyota_pedal ? 6 : 8), .frequency = toyota_alt_cruise ? 10U : 50U,
       .ignore_checksum = !toyota_pedal, .ignore_counter = !toyota_pedal,
-      .max_counter = toyota_pedal ? 15U : 0U, .ignore_quality_flag = false};
+      .max_counter = toyota_pedal ? 15U : 0U, .ignore_quality_flag = toyota_alt_cruise};
     SET_RX_CHECKS(toyota_lka_rx_checks, ret);
-    if (!toyota_pedal && (param != 0x9049U) && (param != 0x9249U)) {
+    if (!toyota_pedal && !toyota_alt_cruise && (param != 0x9049U) && (param != 0x9249U)) {
       ret.rx_checks_len -= 1;  // Ordinary profiles do not require smartDSU.
     }
   }
 
-  if (((param & 0xC000U) != 0U) && (param != 0x9049U) && (param != 0x9249U)) {
+  if (((param & 0xC000U) != 0U) && !toyota_alt_cruise && (param != 0x9049U) && (param != 0x9249U)) {
     ret.tx_msgs_len = 0;
   }
   if (((param & 0x2000U) != 0U) && !toyota_pedal) {

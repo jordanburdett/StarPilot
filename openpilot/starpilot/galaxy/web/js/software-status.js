@@ -188,7 +188,8 @@ export class SoftwareStatusFeed {
       if (!response.ok) {
         const error = new Error(payload?.error || payload?.message || "Software request failed. Refresh to try again.")
         error.rejected = response.status >= 400 && response.status < 500
-        error.startupUnavailable = body === null && response.status === 503 && payload?.error === "Updater status is unavailable"
+        error.startupUnavailable = body === null && response.status === 503 &&
+          ["Software status is unavailable", "Updater status is unavailable"].includes(payload?.error)
         throw error
       }
       if (!validSoftwareSnapshot(payload)) throw new Error("Software response is unavailable. Refresh to try again.")
@@ -241,6 +242,8 @@ export class SoftwareStatusFeed {
           this.actionPriorRequestId = null
           this.notice = "Installed build verified after reconnect."
         }
+        if (this.installBaseline && payload.operations.updaterAvailable === false && payload.operations.progress?.stage === "unavailable")
+          this.restarting(this.installBaseline)
       }
       this.error = ""
       this.emit("ready")
@@ -499,7 +502,7 @@ export const SoftwarePage = {
       <template v-else>
         <section class="gx-card gx-panel gx-stack gx-software-card">
           <dl v-if="data" class="gx-software-summary">
-            <div><dt>Branch</dt><dd><a v-if="commitsUrl" class="gx-link" :href="commitsUrl" target="_blank" rel="noopener noreferrer">{{ data.installed.branch }}</a><span v-else>{{ shown(data.installed.branch) }}</span></dd></div>
+            <div><dt>Branch</dt><dd><a v-if="commitsUrl" class="gx-link" :href="commitsUrl" target="_blank" rel="noopener noreferrer"><i class="bi bi-github" aria-hidden="true"></i> {{ data.installed.branch }}</a><span v-else>{{ shown(data.installed.branch) }}</span></dd></div>
             <div><dt>Version</dt><dd>{{ shown(data.installed.displayVersion ?? data.installed.version) }}</dd></div>
             <div><dt>Commit</dt><dd class="gx-actions">
               <a v-if="commitUrl" class="gx-link" :href="commitUrl" target="_blank" rel="noopener noreferrer" title="View commit on GitHub"><i class="bi bi-github" aria-hidden="true"></i> {{ shortCommit(data.installed.commit) }}</a>

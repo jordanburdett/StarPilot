@@ -58,6 +58,7 @@ class ToyotaSafetyFlags(IntFlag):
   SECOC = (8 << 8)
   LONG_FILTER = (16 << 8)
   GAS_INTERCEPTOR = (32 << 8)
+  ALT_CRUISE = (64 << 8)  # Exact Lexus IS DSU MAIN profile
   RAV4H_FILTER_PROFILE = (128 << 8)  # Exact smartDSU owner; bit14 remains reserved for ALT_CRUISE
 
 

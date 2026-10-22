@@ -34,6 +34,9 @@ jobs:
       contents: read
     steps:
     - uses: actions/checkout@v7
+    - name: Validate published device build receipt
+      if: github.event_name == 'push' && github.ref == 'refs/heads/SecretGoodStarPilot'
+      run: python3 tools/ci/check_prebuilt_receipt.py --revision HEAD
     - name: Check shipped device runtime dependencies
       run: python3 -m unittest tools.laptop_device_build.tests.test_runtime_dependencies -v
     - name: Validate tracked dependencies

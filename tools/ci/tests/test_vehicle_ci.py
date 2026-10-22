@@ -16,6 +16,16 @@ from tools.ci.record_firmware import compile_commands
 
 
 class TestVehicleCollection(unittest.TestCase):
+  def test_classic_mapped_buttons_and_late_dash_run_in_release_ci(self):
+    expected = {
+      'openpilot/starpilot/aol/tests/test_classic_scc_mapped_buttons.py',
+      'openpilot/starpilot/aol/tests/test_sonata_mapped_button_callers.py',
+      'opendbc_repo/opendbc/safety/tests/test_classic_scc_main_ingress.py',
+      'opendbc_repo/opendbc/car/hyundai/tests/test_classic_dash_late_configuration.py',
+    }
+    self.assertLessEqual(expected, set(targets_for('safety-release')))
+    self.assertIn('opendbc_repo/opendbc/safety/tests/test_classic_scc_main_ingress.py', targets_for('safety-debug'))
+
   def test_source_snapshot_catches_uncommitted_and_untracked_edits(self):
     with tempfile.TemporaryDirectory() as directory, patch.object(run_vehicle_tests, 'ROOT', Path(directory)):
       root = Path(directory)

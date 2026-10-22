@@ -18,6 +18,29 @@ SCREEN = {'version': 1, 'width': 1280, 'height': 720, 'margin_width': 0,
 
 
 class TestProjectionLayout(unittest.TestCase):
+  def test_v4_large_sign_migration_clamps_old_bottom_placement_without_losing_custom_actions(self):
+    document = default_layout(SCREEN)
+    document['version'] = 4
+    bounds = layout_metadata(SCREEN)['bounds']
+    bottom = bounds['y'] + bounds['height']
+    document['widgets']['cruise_limits']['y'] = bottom - 132
+    document['widgets']['speed_limit_actions'].update(x=250, y=400)
+    before = copy.deepcopy(document)
+    migrated = validate_layout(document, SCREEN)
+    self.assertEqual(document, before)
+    self.assertEqual(migrated['version'], 5)
+    self.assertEqual(migrated['widgets']['cruise_limits']['y'], bottom - 168)
+    self.assertEqual(migrated['widgets']['speed_limit_actions'], document['widgets']['speed_limit_actions'])
+    self.assertEqual(validate_layout(migrated, SCREEN), migrated)
+
+  def test_v4_moves_actions_only_when_they_follow_the_old_default_sign_position(self):
+    document = default_layout(SCREEN)
+    document['version'] = 4
+    card = document['widgets']['cruise_limits']
+    document['widgets']['speed_limit_actions'].update(x=card['x']+12, y=card['y']+173)
+    migrated = validate_layout(document, SCREEN)
+    self.assertEqual(migrated['widgets']['speed_limit_actions']['y'], card['y']+221)
+
   def test_jetlink_widget_migrates_and_preserves_placement_and_order(self):
     document = default_layout(SCREEN)
     expected = document['widgets'].pop('jetlink_status')
