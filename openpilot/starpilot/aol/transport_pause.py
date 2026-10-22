@@ -1196,7 +1196,13 @@ class TransportPauseFeedback:
           signature=signature, native=native):
         return False
       current = bool(current and (transport_healthy or cancel_native is not None))
-      if current and baseline and not latched:
+      # Ford MAIN off is a no-entry state without a native ACK, and a Mach-E can
+      # go from MAIN off to engaged in one frame. Its idle host (unlatched, no
+      # axis requested, no fault) is the clean baseline, so a previous episode's
+      # failure cannot disarm the next physical arm on its first latched frame.
+      ford_idle = bool(cp.brand == 'ford' and reason == 'none' and not any(signature[9:13]) and
+                       0 < axis.sourceCarStateMonoTime <= stamp and stamp - axis.sourceCarStateMonoTime <= AXIS_MAX_AGE_NS)
+      if current and (baseline or ford_idle) and not latched:
         self.cold_park_waiting = False
         self.temporary_eps_event_ns = 0
         self.session = ''
