@@ -1314,9 +1314,9 @@ class TransportPauseFeedback:
           (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory)) and
         not native.requestedLateral and not native.lateralAllowed and
         not native.requestedLongitudinal and not native.longitudinalAllowed)
-      baseline = bool(reason == 'none' and (axis.nativeAcknowledged or inactive) and
-                      0 < axis.sourceCarStateMonoTime <= stamp and
-                      stamp - axis.sourceCarStateMonoTime <= AXIS_MAX_AGE_NS)
+      source_fresh = bool(0 < axis.sourceCarStateMonoTime <= stamp and
+                          stamp - axis.sourceCarStateMonoTime <= AXIS_MAX_AGE_NS)
+      baseline = bool(reason == 'none' and (axis.nativeAcknowledged or inactive) and source_fresh)
       if native is None and latched and current and continuity and baseline:
         native = _newer_combined_intent_native(sm, cp, cs, axis, now_ns)
       lateral_native = (self._native_long_withdrawal_lateral_current(sm, cp, cs, axis, now_ns,
@@ -1338,7 +1338,17 @@ class TransportPauseFeedback:
           signature=signature, native=native):
         return False
       current = bool(current and (transport_healthy or cancel_native is not None))
-      if current and baseline and not latched:
+      # MAIN off is no-entry without a native ACK, and a Mach-E goes from MAIN off to
+      # engaged in one frame, so the baseline above never forms between episodes. For
+      # Ford an unlatched idle host and native (same producer, no axis, no fault) is the
+      # clean baseline; otherwise a previous failure disarms the next arm on its first
+      # latched frame.
+      ford_idle = bool(cp.brand == 'ford' and reason == 'none' and source_fresh and
+                       str(axis.mode) == 'off' and not any(signature[9:13]) and
+                       intent_producer_session and signature[14] == intent_producer_session and
+                       native is not None and not native.requestedLateral and not native.lateralAllowed and
+                       not native.requestedLongitudinal and not native.longitudinalAllowed)
+      if current and (baseline or ford_idle) and not latched:
         self.cold_park_waiting = False
         self.temporary_eps_event_ns = 0
         self.session = ''
