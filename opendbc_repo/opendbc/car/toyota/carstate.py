@@ -163,6 +163,9 @@ class CarState(CarStateBase):
       ret.accFaulted = cp.vl["PCM_CRUISE_2"]["ACC_FAULTED"] != 0
       ret.carFaultedNonCritical = cp.vl["PCM_CRUISE_SM"]["TEMP_ACC_FAULTED"] != 0
       ret.cruiseState.available = cp.vl["PCM_CRUISE_2"]["MAIN_ON"] != 0
+      if pedal.configured(self.CP):
+        stamp = cp.ts_nanos["PCM_CRUISE_2"]["MAIN_ON"]
+        ret.cruiseState.available &= bool(cp.main_valid and stamp > 0 and 0 <= cp._last_update_nanos - stamp <= 303_031_000)
       ret.cruiseState.speed = cp.vl["PCM_CRUISE_2"]["SET_SPEED"] * CV.KPH_TO_MS
       cluster_set_speed = cp.vl["PCM_CRUISE_SM"]["UI_SET_SPEED"]
 

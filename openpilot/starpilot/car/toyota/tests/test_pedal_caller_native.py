@@ -194,7 +194,7 @@ def selfdrive_inputs(sd, state, native, previous, cp, now):
   return peers
 
 
-def control_inputs(controls, published, state, sd_events, native, now):
+def control_inputs(controls, published, state, sd_events, native, now, planned_curvature=0.):
   values = []
   for name in controls.sm.services:
     if name in sd_events:
@@ -217,8 +217,8 @@ def control_inputs(controls, published, state, sd_events, native, now):
       v = getattr(e, name)
       if name == 'modelV2':
         v.from_dict(model().to_dict())
-      elif name == 'lateralManeuverPlan' and controls.CP.carFingerprint == CAR.LEXUS_IS:
-        v.desiredCurvature = .00005  # Synthetic plan exercises nonzero encoded steering.
+      elif name == 'lateralManeuverPlan' and (controls.CP.carFingerprint == CAR.LEXUS_IS or planned_curvature):
+        v.desiredCurvature = planned_curvature or .00005  # Synthetic plan exercises nonzero encoded steering.
       elif name == 'vehicleParameters':
         v.stiffnessFactor, v.steerRatio = 1.0, controls.CP.steerRatio
       elif name == 'longitudinalPlan':
@@ -311,7 +311,9 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
       patch.object(time, 'clock_gettime_ns', side_effect=lambda c: clock[0] if c in (time.CLOCK_MONOTONIC, time.CLOCK_BOOTTIME) else real_clock(c))
     )
     try:
-      for tick in range(1, {'nominal': 251, 'physical': 601, 'faults': 801, 'bad_dlc': 801, 'off': 401}[scenario]):
+      steps = {'nominal': 251, 'physical': 601, 'faults': 801, 'bad_dlc': 801,
+               'main_dropout': 801, 'main_bad_crc': 801, 'main_bad_dlc': 801, 'off': 401}
+      for tick in range(1, steps[scenario]):
         clock[0] += 10_000_000
         now = time.monotonic_ns()
         safety.set_timer((now // 1000) & 0xFFFFFFFF)
@@ -324,7 +326,7 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
             gear=8 if 410 <= tick < 420 else 16 if 420 <= tick < 430 else 0,
             cruise=tick >= 150 and not any(a <= tick < b for a, b in ((280, 290), (340, 370), (460, 470), (520, 540))),
           )
-        elif scenario in ('faults', 'bad_dlc'):
+        elif scenario in ('faults', 'bad_dlc', 'main_dropout', 'main_bad_crc', 'main_bad_dlc'):
           fields.update(
             eps=9 if 250 <= tick < 270 else 3 if 320 <= tick < 340 else 1,
             sdsu=2 if 460 <= tick < 470 else None if 630 <= tick < 665 else 0,
@@ -335,7 +337,19 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
           params.put_bool('DisableOpenpilotLongitudinal', not stock, block=True)
         if dsu_main and fields.get('sdsu'):
           fields['eps'] = 9
+        main_fault = scenario.startswith('main_') and fields.get('sdsu', 0) is None
+        if main_fault:
+          fields['sdsu'] = 0  # Keep pedal source healthy while only MAIN disappears.
         frames = physical(packer, dsu_main=dsu_main, **fields)
+        if scenario.startswith('main_') and (tick % 3 != 0 or main_fault and scenario == 'main_dropout'):
+          frames = [f for f in frames if f[0] != 0x1D3]  # Real PCM MAIN cadence, about 33 Hz.
+        if main_fault and scenario in ('main_bad_crc', 'main_bad_dlc'):
+          changed = []
+          for a, d, b in frames:
+            if a == 0x1D3:
+              d = d[:-1] + bytes([d[-1] ^ 1]) if scenario == 'main_bad_crc' else d[:-1]
+            changed.append((a, d, b))
+          frames = changed
         if dsu_main and fields.get('sdsu', 0) is None:
           if scenario == 'bad_dlc':
             frames = [(a, d + bytes(1) if a == 0x365 else d, b) for a, d, b in frames]
@@ -382,7 +396,7 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
         native = native_events(host, safety, time.monotonic_ns(), sd.aol_session_id)
         current_sd = dict(prev)
         current_sd.update(sd_events)
-        deliver(controls.sm, control_inputs(controls, published, state, current_sd, native, time.monotonic_ns()))
+        deliver(controls.sm, control_inputs(controls, published, state, current_sd, native, time.monotonic_ns(), .001 if scenario.startswith('main_') else 0.))
         command, lac_log = controls.state_control()
         controls.publish(command, lac_log)
         cc_event = published['carControl']
@@ -423,7 +437,7 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
           and tick < 250
           or scenario == 'physical'
           and any(a <= tick < b for a, b in ((220, 240), (320, 330), (390, 400), (500, 510), (570, 601)))
-          or scenario in ('faults', 'bad_dlc')
+          or scenario in ('faults', 'bad_dlc', 'main_dropout', 'main_bad_crc', 'main_bad_dlc')
           and any(a <= tick < b for a, b in ((220, 240), (420, 430), (540, 550), (760, 801)))
         )
         if nominal:
@@ -438,9 +452,13 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
             assert cc.latActive and not cc.longActive, trace[-1]
           if 415 <= tick < 430:
             assert not cc.latActive and not cc.longActive, trace[-1]
-        if scenario in ('faults', 'bad_dlc'):
+        if scenario in ('faults', 'bad_dlc', 'main_dropout', 'main_bad_crc', 'main_bad_dlc'):
           dropout = ((635, 665) if scenario == 'bad_dlc' else (662, 665)) if dsu_main else (650, 661)
-          if dsu_main and scenario != 'bad_dlc' and 650 <= tick < 656:
+          if scenario == 'main_dropout':
+            dropout = (662, 665)
+          elif scenario.startswith('main_'):
+            dropout = (635, 665)
+          if (dsu_main and scenario != 'bad_dlc' or scenario == 'main_dropout') and 650 <= tick < 656:
             assert cc.latActive, ('DSU MAIN is still inside its existing 303 ms lease', trace[-1])
           if any(a <= tick < b for a, b in ((260, 269), (330, 339), (465, 469), dropout)):
             assert not cc.latActive and not cc.longActive, trace[-1]
@@ -460,7 +478,7 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
                 assert acc['ACCEL_CMD'] == 0 and acc['CANCEL_REQ'] and not acc['RELEASE_STANDSTILL']
 
         for frame in outgoing.sendcan:
-          if dsu_main and frame.address == 0x2E4:
+          if (dsu_main or scenario.startswith('main_')) and frame.address == 0x2E4:
             steer = decode(host.CP, (frame.address, bytes(frame.dat), frame.src), 'STEERING_LKA')
             if steer['STEER_TORQUE_CMD'] != 0:
               assert cc.latActive and steer['STEER_REQUEST']
@@ -477,7 +495,7 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
         prev = current_sd
       assert seen_active
       assert seen_pedal == (not stock)
-      if dsu_main:
+      if dsu_main or scenario.startswith('main_'):
         assert seen_steer, "Actual nonzero steering must reach the fresh native TX hook"
     finally:
       (OUT / (str(candidate) + '-actual-' + scenario + ('-stock-trace.json' if stock else '-long-trace.json'))).write_text(json.dumps(trace, indent=2) + '\n')

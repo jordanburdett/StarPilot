@@ -880,6 +880,8 @@ def main():
     current = bool(sm.all_checks(['extrinsicsCalibration']) and
       0 < stamp <= now <= stamp + 500_000_000 and
       0 < receipt <= now <= receipt + 500_000_000)
+    if not sm.valid['extrinsicsCalibration'] or stamp > now or receipt > now:
+      return calibration_lifecycle.observe(None, current=False)
     return calibration_lifecycle.observe(sm['extrinsicsCalibration'], current=current)
 
   def current_source(now, frame):

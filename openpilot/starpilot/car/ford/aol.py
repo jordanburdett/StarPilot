@@ -84,3 +84,30 @@ class FordCardIntent(AolCardIntent):
 
 def create_intent(cp, settings):
   return FordCardIntent(cp, settings)
+
+
+def temporary_eps_restriction(cp, state):
+  """Exact stock Ford physical EPS pause; intent only, no native permission."""
+  try:
+    return bool(qualified(cp, marked_only=True) and not cp.openpilotLongitudinalControl and
+      state.steerFaultTemporary and not state.steerFaultPermanent and state.canValid and not state.canTimeout and
+      state.cruiseState.available and not state.cruiseState.enabled and
+      state.gearShifter == structs.CarState.GearShifter.drive and
+      not state.regenBraking and not state.gasPressed and
+      not state.doorOpen and not state.seatbeltUnlatched and not state.accFaulted and
+      not state.vehicleSensorsInvalid and not state.steeringDisengage and not state.buttonEvents)
+  except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
+    return False
+
+
+def temporary_eps_brake_recovery(cp, state):
+  """Stock LAT intent may outlive EPS loss while the brake remains held."""
+  try:
+    return bool(qualified(cp, marked_only=True) and not cp.openpilotLongitudinalControl and
+      state.brakePressed and not state.steerFaultTemporary and not state.steerFaultPermanent and
+      state.canValid and not state.canTimeout and state.cruiseState.available and not state.cruiseState.enabled and
+      state.gearShifter == structs.CarState.GearShifter.drive and not state.regenBraking and not state.gasPressed and
+      not state.doorOpen and not state.seatbeltUnlatched and not state.accFaulted and
+      not state.vehicleSensorsInvalid and not state.steeringDisengage and not state.buttonEvents)
+  except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
+    return False

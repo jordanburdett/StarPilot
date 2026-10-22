@@ -16,6 +16,27 @@ from tools.ci.record_firmware import compile_commands
 
 
 class TestVehicleCollection(unittest.TestCase):
+  def test_classic_initialization_neutral_replacement_runs_in_release_ci(self):
+    self.assertIn('openpilot/starpilot/aol/tests/test_classic_startup_neutral_replacement.py', targets_for('safety-release'))
+
+  def test_independent_lateral_soft_takeover_runs_in_release_ci(self):
+    self.assertIn('openpilot/starpilot/aol/tests/test_independent_lateral_soft_takeover.py', targets_for('safety-release'))
+
+  def test_expired_axis_gaps_keep_real_cpp_and_vetoes_in_release_ci(self):
+    expected = {
+      'openpilot/starpilot/aol/tests/test_sonata_temporary_withdrawals.py',
+      'openpilot/starpilot/aol/tests/test_expired_axis_zero_request.py',
+    }
+    self.assertLessEqual(expected, set(targets_for('safety-release')))
+
+  def test_ev6_release_ci_exercises_real_alpha_startup_and_physical_owner(self):
+    expected = {
+      'openpilot/starpilot/tests/test_ev6_startup.py',
+      'openpilot/starpilot/aol/tests/test_ev6_stock_parity.py',
+      'openpilot/starpilot/aol/tests/test_ev6_physical_authorization.py',
+    }
+    self.assertLessEqual(expected, set(targets_for('safety-release')))
+
   def test_classic_mapped_buttons_and_late_dash_run_in_release_ci(self):
     expected = {
       'openpilot/starpilot/aol/tests/test_classic_scc_mapped_buttons.py',

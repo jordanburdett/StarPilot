@@ -54,6 +54,10 @@ from opendbc.car.ford.aol import (
 from opendbc.car.hyundai.canfd_angle_aol import native_observation, temporary_restriction, qualified as qualified_angle_aol
 from opendbc.car.hyundai.canfd_owner import config_index as hyundai_canfd_config_index
 from opendbc.car.hyundai.captured_adrv_startup import CapturedADRVStartup
+from openpilot.starpilot.car.nissan.aol import (
+  qualified as qualified_nissan_aol, native_observation as nissan_native_observation,
+  temporary_restriction as nissan_temporary_restriction,
+)
 from openpilot.starpilot.car.hyundai.aol import aol_safety_config as hyundai_aol_safety_config
 from openpilot.starpilot.car.hyundai.aol import retained_shared_long_cancel_intent as hkg_cancel_intent_retained
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, current_axis, current_native
@@ -598,7 +602,8 @@ class Car:
         fault_active = transport_reset or self.aol_disarming_fault(CS, event_ns, now_ns,
           transport_observed_healthy=reuse_transport)
       angle_aol, ford_aol, honda_aol, mazda_aol, preap_aol = self.aol_permission_owners()
-      permission_owner = angle_aol or ford_aol or honda_aol or mazda_aol or preap_aol
+      nissan_aol = qualified_nissan_aol(self.CP, marked_only=True)
+      permission_owner = angle_aol or ford_aol or honda_aol or mazda_aol or preap_aol or nissan_aol
       angle_panda_ready = not permission_owner or self.startup_panda_configured()
       native = (
         current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_axis_session() if permission_owner else None)
@@ -607,9 +612,11 @@ class Car:
       )
       native_reset = False
       if permission_owner:
-        observe = (preap_native_observation if preap_aol else mazda_native_observation if mazda_aol else self.aol_honda_native_observation if honda_aol else
+        observe = (nissan_native_observation if nissan_aol else
+                   preap_native_observation if preap_aol else mazda_native_observation if mazda_aol else self.aol_honda_native_observation if honda_aol else
                    ford_native_observation if ford_aol else native_observation)
-        restrict = (preap_temporary_restriction if preap_aol else mazda_temporary_restriction if mazda_aol else honda_temporary_restriction if honda_aol else
+        restrict = (nissan_temporary_restriction if nissan_aol else
+                    preap_temporary_restriction if preap_aol else mazda_temporary_restriction if mazda_aol else honda_temporary_restriction if honda_aol else
                     ford_temporary_restriction if ford_aol else temporary_restriction)
         preap_observation = {}
         if preap_aol:
@@ -1410,6 +1417,15 @@ class Car:
             owner.ready and owner.published and owner.ci is self.CI and not owner.closed and
             required(self.CP))
 
+  def classic_startup_keepalive(self):
+    from opendbc.car.hyundai.g90_startup import G90Startup
+    from opendbc.car.hyundai.classic_long_aol import qualified
+    from opendbc.car.hyundai.ecu_startup import Outcome
+    owner = getattr(getattr(self, 'vehicle_startup', None), 'owner', None)
+    return (isinstance(owner, G90Startup) and owner.outcome is Outcome.SENT_UNCONFIRMED and
+            owner.ready and owner.published and owner.ci is self.CI and not owner.closed and
+            qualified(self.CP))
+
   def mixed_startup_keepalive(self):
     from opendbc.car.hyundai.blended_longitudinal import BlendedStartup
     owner = getattr(getattr(self, 'vehicle_startup', None), 'owner', None)
@@ -1438,19 +1454,21 @@ class Car:
 
     if initialize_only:
       ev6_startup = self.ev6_startup_keepalive()
+      classic_startup = self.classic_startup_keepalive()
       mixed_startup = self.mixed_startup_keepalive()
       now_ns = time.monotonic_ns()
       source_ns = int(self.sm.logMonoTime['carControl'])
       receipt_ns = int(self.sm.recv_time['carControl'] * 1e9)
       # Disabled torque/accel are commands; inactive curvature is only telemetry.
-      if (not (mixed_startup or ev6_startup or (self.aol_replay and native_bootstrap_supported(self.CP) and self.vehicle_startup.owner is None)) or
+      if (not (mixed_startup or ev6_startup or classic_startup or
+               (self.aol_replay and native_bootstrap_supported(self.CP) and self.vehicle_startup.owner is None)) or
           not CS.canValid or CS.canTimeout or
           not (self.sm.seen['carControl'] and self.sm.valid['carControl'] and self.sm.alive['carControl']) or
           not (0 < source_ns <= now_ns and now_ns - source_ns <= 150_000_000 and
                0 < receipt_ns <= now_ns and now_ns - receipt_ns <= 150_000_000) or
           CC.enabled or CC.latActive or CC.longActive or CC.actuators.torque != 0.0 or CC.actuators.accel != 0.0):
         return
-      if ev6_startup and not self.vehicle_startup.owner.prepared_for(self.CP):
+      if (ev6_startup or classic_startup) and not self.vehicle_startup.owner.prepared_for(self.CP):
         return
 
     if getattr(self, 'volt_cc_selected', False):
@@ -1535,7 +1553,7 @@ class Car:
       self.ci_initialized = True
 
     if initialize_only:
-      if ev6_startup and any(ps.faults for ps in self.sm['pandaStates']):
+      if (ev6_startup or classic_startup) and any(ps.faults for ps in self.sm['pandaStates']):
         return
       if mixed_startup:
         owner = self.vehicle_startup.owner
@@ -1547,11 +1565,11 @@ class Car:
           self.last_actuators_output, can_sends = self.CI.apply(inactive, now_boot_ns)
           self.publish_sendcan(can_sends, valid=CS.canValid)
         return
-      if (((isinstance(self.CI, GMInterface) and self.volt_startup_keepalive()) or ev6_startup) and
+      if (((isinstance(self.CI, GMInterface) and self.volt_startup_keepalive()) or ev6_startup or classic_startup) and
           self.startup_panda_configured(inactive_keepalive=True)):
         inactive = car.CarControl.new_message().as_reader()
         now_boot_ns = time.clock_gettime_ns(time.CLOCK_BOOTTIME)
-        if ev6_startup:
+        if ev6_startup or classic_startup:
           now_mono_ns = time.monotonic_ns()
           source_ns = int(self.sm.logMonoTime['carControl'])
           receipt_ns = int(self.sm.recv_time['carControl'] * 1e9)
@@ -1648,10 +1666,12 @@ class Car:
                    self.sm.seen['onroadEvents'])
     if not self.CP.passive and initialized:
       self.controls_update(CS, self.sm['carControl'])
-    elif ((not self.ci_initialized or self.volt_startup_keepalive() or self.ev6_startup_keepalive() or self.mixed_startup_keepalive()) and
+    elif ((not self.ci_initialized or self.volt_startup_keepalive() or self.ev6_startup_keepalive() or
+           self.classic_startup_keepalive() or self.mixed_startup_keepalive()) and
           self.sm.seen['onroadEvents'] and
           any(e.name == EventName.selfdriveInitializing for e in self.sm['onroadEvents']) and
-          ((self.aol_replay and native_bootstrap_supported(self.CP)) or self.ev6_startup_keepalive() or self.mixed_startup_keepalive())):
+          ((self.aol_replay and native_bootstrap_supported(self.CP)) or self.ev6_startup_keepalive() or
+           self.classic_startup_keepalive() or self.mixed_startup_keepalive())):
       self.controls_update(CS, self.sm['carControl'], initialize_only=True)
 
     radar_can = self._deferred_radar_can

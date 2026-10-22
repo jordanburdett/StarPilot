@@ -121,7 +121,8 @@ class SpeedLimitWidget:
         centered(shown.offset_text, FontRole.MEDIUM, size, offset_top, color)
     else:
       rect = rl.Rectangle(x + 2 * scale, top + 2 * scale, 114 * scale, 128 * scale)
-      rl.draw_rectangle_rounded(rect, .1, 16, rl.Color(10, 17, 19, 230))
+      if self.profile == Profile.LARGE:
+        rl.draw_rectangle_rounded(rect, .1, 16, rl.Color(10, 17, 19, 230))
       rl.draw_rectangle_rounded_lines_ex(rect, .1, 16, 2 * scale, white)
       for label, y in (('SPEED', top + 11 * scale), ('LIMIT', top + 27 * scale)):
         centered(label, FontRole.SEMI_BOLD, 20, y, white, x + (53 if arrow_direction else 59) * scale)

@@ -1,3 +1,4 @@
+import { DriveStatePanel } from "./drive-state.js"
 import { GxDialog } from "./dialog.js"
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
@@ -316,7 +317,7 @@ export class SoftwareStatusFeed {
 }
 
 export const SoftwarePage = {
-  components: { GxDialog, GxState, GxNotice, GalaxySelect, GalaxySettingRow, ToggleBackup },
+  components: { DriveStatePanel, GxDialog, GxState, GxNotice, GalaxySelect, GalaxySettingRow, ToggleBackup },
   name: "SoftwarePage",
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true }, restarting: { type: Function, default: () => {} },
     preparing: { type: Function, default: () => {} }, cancelPreparation: { type: Function, default: () => {} } },
@@ -531,7 +532,7 @@ export const SoftwarePage = {
             :index="0" :busy="busy" :disabled="uncertain || !!error || !operations.canConfigure"
             :save-value="(index, value) => feed.configureAutomaticDownloads(value === 'On')" />
           <p v-if="operations?.automaticDownloads === null" class="gx-note">The download preference could not be read. Choose a setting while parked to repair it.</p>
-          <details v-if="data" class="gx-software-options"><summary>Advanced options</summary><div class="gx-stack">
+          <details v-if="data" class="gx-software-options"><summary>Advanced options</summary><div class="gx-stack"><DriveStatePanel offroad-only />
             <div class="gx-software-branch"><label class="gx-field-group gx-grow"><span class="gx-row__label">Branch</span>
               <GalaxySelect v-model="primaryChoice" class="gx-field gx-field--full" aria-label="Target branch" :disabled="actionUnavailable || !operations.canSelect" @change="onPrimaryBranchChange">
                 <option value="" disabled>Choose a branch</option>

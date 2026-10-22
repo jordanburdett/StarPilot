@@ -1,6 +1,7 @@
 """Dom pedal protocol for the qualified Corolla/RAV4 TSS2 camera-longitudinal owners."""
 import numpy as np
 from opendbc.can import CANParser
+from opendbc.car.toyota.toyotacan import toyota_checksum
 from opendbc.car import structs, CanData
 from opendbc.car.toyota.values import CAR, ToyotaFlags, MIN_ACC_SPEED, PEDAL_TRANSITION
 
@@ -88,6 +89,7 @@ class PedalCANParser(CANParser):
     super().__init__(*args)
     self.pedal_counter = None
     self.pedal_valid = False
+    self.main_valid = False
 
   def update(self, strings, sendcan=False):
     batches = []
@@ -95,6 +97,10 @@ class PedalCANParser(CANParser):
       accepted = []
       for frame in frames:
         address, data, bus = frame
+        if address == 0x1D3 and bus == self.bus:
+          self.main_valid = len(data) == 8 and data[-1] == toyota_checksum(address, None, bytearray(data))
+          if not self.main_valid:
+            continue
         if address == 0x201 and bus == self.bus:
           counter = data[4] & 15 if len(data) == 6 else None
           valid = len(data) == 6 and data[-1] == checksum(data)

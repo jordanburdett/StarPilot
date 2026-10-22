@@ -21,6 +21,39 @@ sys.path.insert(0, str(ROOT))
 from tools import test_runner
 from tools.ci import vehicle_pytest
 
+# Representative production callers plus their source/native refusal cases.
+# The emitted selected_test_ids record exact parametrized configurations.
+AOL_LIFECYCLE_TARGETS = (
+  "openpilot/starpilot/aol/tests/test_gm.py",
+  "openpilot/starpilot/aol/tests/test_gm_startup_main.py",
+  "openpilot/starpilot/aol/tests/test_gm_pedal_order.py",
+  "openpilot/starpilot/aol/tests/test_gm_cancel_remap.py",
+  "openpilot/starpilot/aol/tests/test_gm_held_brake_successor.py",
+  "openpilot/starpilot/aol/tests/test_gm_lag_episode_recovery.py",
+  "openpilot/starpilot/aol/tests/test_independent_lateral_soft_takeover.py",
+  "openpilot/starpilot/aol/tests/test_volt_lag_pedal_intent.py",
+  "openpilot/starpilot/aol/tests/test_gm_route18e_recovery.py",
+  "openpilot/starpilot/aol/tests/test_stock_lateral_honda.py",
+  "openpilot/starpilot/aol/tests/test_honda_reverse_join.py",
+  "openpilot/starpilot/aol/tests/test_temporary_lag_intent.py",
+  "openpilot/starpilot/aol/tests/test_stock_location_recovery.py",
+  "openpilot/starpilot/aol/tests/test_stock_eps_recovery.py",
+  "openpilot/starpilot/aol/tests/test_stock_lateral_lag_gap_sequence.py",
+  "openpilot/starpilot/aol/tests/test_chrysler.py",
+  "openpilot/starpilot/aol/tests/test_toyota.py",
+  "openpilot/starpilot/car/toyota/tests/test_lexus_is_caller_native.py",
+  "openpilot/starpilot/car/nissan/tests/test_aol.py",
+)
+
+AOL_LIFECYCLE_SCOPE = {
+  "gm": "Volt/Bolt factory profiles, MAIN boot, stock/Alpha, BE/C9, pedal/regen, Cancel mappings, RES, lag withdrawal/recovery",
+  "honda": "stock Civic source/native vetoes and native-first Reverse joins",
+  "hyundai": "Ioniq stock/OP host lag plus classic/CAN-FD stock source-gap and EPS/location recovery",
+  "ford_chrysler": "stock PCM-off EPS/location joins; Chrysler factory/parser/controller OFF and Cancel behavior",
+  "toyota": "stock torque/angle native-ack vetoes, source-gap recovery, Lexus IS DSU actual DEBUG/RELEASE native callers",
+  "nissan": "five stock identities, real acquisition/parser/controller/native optional paths",
+}
+
 DEBUG_SAFETY_CLASS_TARGETS = {
   "opendbc_repo/opendbc/safety/tests/test_hyundai_ev9_long.py": (
     "opendbc_repo/opendbc/safety/tests/test_hyundai_ev9_long.py::TestEv9LongDebugContract",
@@ -83,6 +116,13 @@ RELEASE_TARGETS = (
   "openpilot/starpilot/aol/tests/test_sonata_cruise_only_withdrawal.py",
   "openpilot/starpilot/aol/tests/test_classic_scc_mapped_buttons.py",
   "openpilot/starpilot/aol/tests/test_sonata_mapped_button_callers.py",
+  "openpilot/starpilot/aol/tests/test_sonata_temporary_withdrawals.py",
+  "openpilot/starpilot/aol/tests/test_expired_axis_zero_request.py",
+  "openpilot/starpilot/aol/tests/test_independent_lateral_soft_takeover.py",
+  "openpilot/starpilot/aol/tests/test_classic_startup_neutral_replacement.py",
+  "openpilot/starpilot/tests/test_ev6_startup.py",
+  "openpilot/starpilot/aol/tests/test_ev6_stock_parity.py",
+  "openpilot/starpilot/aol/tests/test_ev6_physical_authorization.py",
   "opendbc_repo/opendbc/safety/tests/test_classic_scc_main_ingress.py",
   "opendbc_repo/opendbc/car/hyundai/tests/test_classic_dash_late_configuration.py",
   "opendbc_repo/opendbc/car/toyota/tests/test_rav4h_filter.py",
@@ -290,6 +330,8 @@ def sha256(path):
 
 
 def targets_for(suite):
+  if suite == "aol-lifecycle":
+    return list(AOL_LIFECYCLE_TARGETS)
   if suite == "interfaces":
     car_root = ROOT / "opendbc_repo/opendbc/car"
     return [str(path.relative_to(ROOT)) for path in sorted(car_root.rglob("test_*.py"))
@@ -412,6 +454,16 @@ def build_safety_library(release, output):
           "loader_sha256": sha256(libsafety_py.__file__)}
 
 
+def build_aol_protocol(output):
+  """The existing C++ protocol contract is part of the same lifecycle gate."""
+  executable = output / "test_aol_protocol"
+  command = ["c++", "-std=c++17", "-I.", "-Iopenpilot", "-Iopendbc_repo",
+             "openpilot/selfdrive/pandad/tests/test_aol_protocol.cc", "-o", str(executable)]
+  subprocess.check_call(command, cwd=ROOT)
+  subprocess.check_call([str(executable)], cwd=ROOT)
+  return {"command": command, "path": str(executable), "sha256": sha256(executable)}
+
+
 def run(suite, output, collect_only=False):
   output = Path(output).resolve()
   output.mkdir(parents=True, exist_ok=True)
@@ -426,6 +478,12 @@ def run(suite, output, collect_only=False):
                         "independent lateral/longitudinal feature transitions", "device firmware execution"],
           "targets": [], "selected_test_ids": [], "collection_errors": [],
           "fuzz_seed": os.environ.get("FUZZ_SEED"), "max_examples_override": os.environ.get("MAX_EXAMPLES")}
+  if suite == "aol-lifecycle":
+    plan["scope"] = "selected actual vehicle callers with synthetic receive/readiness timelines; native hooks where exercised by the selected suites"
+    plan["lifecycle_rows"] = AOL_LIFECYCLE_SCOPE
+    plan["uncovered"] = ["complete recorded routes and real-time device deadlines", "physical firmware/harness acceptance",
+                         "unselected exact variants, including new G90/GV70 report configurations",
+                         "Mazda, Volkswagen, Rivian, Subaru and Tesla complete joined lifecycles"]
   if suite == "safety-release":
     plan["uncovered"].append("full release-mode behavioral safety suite; only explicit selected classes run")
   (output / "plan.json").write_text(json.dumps(plan, sort_keys=True, indent=2) + "\n")
@@ -436,6 +494,8 @@ def run(suite, output, collect_only=False):
     plan["native"] = native_provenance()
     if suite != "interfaces" and not collect_only:
       plan["native"]["safety"] = build_safety_library(suite == "safety-release", output)
+    if suite == "aol-lifecycle" and not collect_only:
+      plan["native"]["aol_protocol"] = build_aol_protocol(output)
     phase = "collection"
     unittest_targets, pytest_targets = vehicle_pytest.split_targets(ROOT, plan["targets"])
     plan["runners"] = {"unittest": unittest_targets, "pytest": pytest_targets}
@@ -474,6 +534,13 @@ def run(suite, output, collect_only=False):
   records = test_runner.account_for_tests(ids, records, tests)
   if not errors and suite == "interfaces":
     gate_errors.extend(interface_execution_errors(platform_tests, records))
+  if not collect_only and suite == "aol-lifecycle":
+    gate_errors.extend(f"Required lifecycle case did not pass: {record['id']} ({record['status']})"
+                       for record in records if record["status"] != "passed")
+    for target in plan["targets"]:
+      prefix = Path(target).with_suffix("").as_posix().replace("/", ".") + "."
+      if not any(identity.startswith(prefix) for identity in ids):
+        gate_errors.append(f"Required lifecycle module collected no cases: {target}")
   elapsed = time.monotonic() - started
   exit_code = test_runner.report(records, errors + gate_errors, 10, elapsed)
   status = "error" if errors else "failed" if exit_code else "completed"
@@ -497,7 +564,7 @@ def run(suite, output, collect_only=False):
 
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
-  parser.add_argument("--suite", choices=("interfaces", "safety-debug", "safety-release"), required=True)
+  parser.add_argument("--suite", choices=("interfaces", "safety-debug", "safety-release", "aol-lifecycle"), required=True)
   parser.add_argument("--output", type=Path, required=True)
   parser.add_argument("--collect-only", action="store_true")
   args = parser.parse_args()

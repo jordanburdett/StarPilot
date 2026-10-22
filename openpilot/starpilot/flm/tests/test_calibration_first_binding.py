@@ -85,7 +85,7 @@ def test_actual_zero_interval_defers_without_admission_or_frequency_flag_writes(
     assert controls.global_learning.eligible
 
 
-@pytest.mark.parametrize('failure', ['invalid', 'stale', 'future', 'invalid_wire', 'regression'])
+@pytest.mark.parametrize('failure', ['invalid', 'future', 'invalid_wire', 'regression'])
 def test_pending_true_calibration_fault_retires_and_same_generation_cannot_return(failure):
   cp = interfaces[CAR.TOYOTA_RAV4_TSS2].get_non_essential_params(CAR.TOYOTA_RAV4_TSS2)
   with controls_for(cp, 'standard', True) as controls, calibration_receipts(controls) as original_delivery:
@@ -181,8 +181,8 @@ def test_missing_source_preserves_regression_guard_before_or_at_rate_recovery(mi
       if tick == 85:
         assert runtime._calibration_pending == ('a'*32, 6)
       if tick == 100 and missing_tick == 100:
-        # Missing source during the unqualified rate phase conservatively binds
-        # the pending token, then original observe(False) retires it immediately.
+        # Missing source during the unqualified rate phase binds the pending
+        # token without admitting it. The subsequent block drop retires it.
         assert runtime._calibration_lifecycle.generation == 'a'*32
         assert not runtime._calibration_lifecycle.current
         assert runtime._calibration_lifecycle.last_invalid_ns == BASE+1_000_000_000
@@ -198,8 +198,29 @@ def test_missing_source_preserves_regression_guard_before_or_at_rate_recovery(mi
           # keeps the saved6 blocks; later same-token5 cannot erase history.
           assert runtime._calibration_lifecycle.generation == ''
           assert runtime._calibration_pending == ('a'*32, 6)
-      if tick >= 100 and missing_tick == 100:
+      if tick >= 105 and missing_tick == 100:
         assert 'a'*32 in runtime._calibration_lifecycle.rejected
       assert not runtime.eligible
     assert 'a'*32 in runtime._calibration_lifecycle.rejected
     assert runtime._calibration_pending is None
+
+
+def test_actual_controls_stale_calibration_pauses_until_fresh_source():
+  cp = interfaces[CAR.TOYOTA_RAV4_TSS2].get_non_essential_params(CAR.TOYOTA_RAV4_TSS2)
+  with controls_for(cp, 'standard', True) as controls, calibration_receipts(controls) as delivery:
+    for tick in range(121):
+      frame(controls, tick)
+    runtime, sm = controls.global_learning, controls.sm
+    assert runtime.eligible
+    now = BASE + 1_210_000_000
+    event = messaging.new_message('extrinsicsCalibration', valid=True, logMonoTime=now - 500_000_001)
+    event.extrinsicsCalibration = sm['extrinsicsCalibration']
+    delivery(now / 1e9, [event.as_reader()])
+    runtime.prepare(sm, now_ns=now, active=True, healthy=True)
+    assert not runtime.eligible and not runtime._calibration_lifecycle.current
+    assert not runtime._calibration_lifecycle.admit('a' * 32, now + 1)
+    assert 'a' * 32 not in runtime._calibration_lifecycle.rejected
+    for tick in range(122, 221):
+      frame(controls, tick)
+    assert runtime.eligible
+    assert runtime._calibration_lifecycle.generation == 'a' * 32

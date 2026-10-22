@@ -197,6 +197,8 @@ class GlobalRuntime:
             if pending is not None and generation == pending[0]:
               tracker.blocks = pending[1]
             self._calibration_pending = None
+      if (not sm.valid['extrinsicsCalibration'] or stamp > now_ns or receipt > now_ns):
+        tracker.reject(now_ns=now_ns)
       tracker.observe(sm['extrinsicsCalibration'], current=current_calibration, now_ns=now_ns)
     except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
       if not tracker.generation:
@@ -268,7 +270,7 @@ class GlobalRuntime:
         receipt = int(sm.recv_time[service] * 1e9)
         if not (sm.seen[service] and 0 < stamp <= now_ns <= stamp + maximum and 0 < receipt <= now_ns <= receipt + maximum):
           if service == 'extrinsicsCalibration' and hasattr(self, '_calibration_lifecycle'):
-            self._calibration_lifecycle.reject()
+            self._calibration_lifecycle.unavailable(now_ns=now_ns)
           raise ValueError('stale_original_source')
       if self.controller.sat_time > 0:
         raise ValueError('controller_saturation')

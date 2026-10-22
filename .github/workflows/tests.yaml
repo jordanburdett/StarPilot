@@ -196,6 +196,17 @@ jobs:
       run: |
         uv pip install --python .venv/bin/python --only-binary av av==19.0.1
         .venv/bin/python -c "import av; assert 'libx264' in av.codecs_available"
+    - name: Gate shared AOL vehicle lifecycles
+      if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+      timeout-minutes: 10
+      run: python3 tools/ci/run_vehicle_tests.py --suite aol-lifecycle --output ci-results/aol-lifecycle
+    - name: Save AOL lifecycle cases and source/native evidence
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: aol-lifecycle
+        path: ci-results/aol-lifecycle/
+        if-no-files-found: warn
     - name: Run unit tests
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
       timeout-minutes: ${{ contains(runner.name, 'nsc') && 2 || 20 }}
