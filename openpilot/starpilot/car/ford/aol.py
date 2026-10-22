@@ -69,6 +69,18 @@ class FordCardIntent(AolCardIntent):
     state.buttonEvents = events
     super().update(state.as_reader(), **kwargs)
 
+  def observe_full_engagement(self, CS, **kwargs):
+    # The synthesized MAIN pulse is not a held driver gesture. A Mach-E goes
+    # from MAIN off to engaged in one frame, so it must not consume the ordinary
+    # activation that would otherwise also arm lateral.
+    held = self._main_held
+    if self.auto_main:
+      self._main_held = False
+    try:
+      super().observe_full_engagement(CS, **kwargs)
+    finally:
+      self._main_held = held
+
 
 def create_intent(cp, settings):
   return FordCardIntent(cp, settings)

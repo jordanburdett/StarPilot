@@ -191,3 +191,26 @@ def test_auxiliary_off_after_pending_observation_cannot_be_undone_by_activation(
   assert not owner.allowed_latch
   observe(owner, cs, 3)
   assert not owner.allowed_latch
+
+
+def test_mach_e_main_pulse_does_not_consume_ordinary_activation():
+  # MAIN off to engaged in one frame: the synthesized MAIN pulse is not a held
+  # driver gesture, so the ordinary activation still arms lateral.
+  owner = FordCardIntent(CP, AolSettings(True, 0., 0, 0, (0, 0, 0), (0, 0, 0)))
+  assert owner.auto_main
+  off = state()
+  off.cruiseState.available = False
+  owner.update(off, now_ns=1, fault_active=False)
+  observe(owner, off, 1, enabled=False, active=False)
+  invalid = state()
+  invalid.cruiseState.available = False
+  invalid.canValid = False
+  owner.update(invalid, now_ns=2, fault_active=False)  # gesture neutral must be re-observed
+  engaged = state()
+  engaged.cruiseState.enabled = True
+  owner.update(engaged, now_ns=3, fault_active=False)
+  observe(owner, engaged, 2, enabled=False, active=False)
+  assert not owner.allowed_latch
+  owner.update(engaged, now_ns=4, fault_active=False)
+  observe(owner, engaged, 4)
+  assert owner.allowed_latch and not owner.pause_lateral

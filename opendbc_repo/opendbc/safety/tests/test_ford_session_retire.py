@@ -118,3 +118,34 @@ def test_long_profile_host_loss_still_withdraws_and_fresh_activation_engages(for
   n.pump(20, main=4, mask=3)
   assert safety.get_controls_allowed()
   assert safety.aol_get_permission_mask() == 3
+
+
+@pytest.mark.parametrize('word', WORDS)
+def test_standby_activation_with_gas_held_arms_after_release(ford_native, word):
+  # MADS-style: an ordinary activation from standby arms lateral even if the
+  # driver engaged with the accelerator held, once the pedal is released.
+  n = ford_native
+  select(n, word)
+  n.pump(40, main=3, heartbeat=False)  # MAIN already on: no MAIN edge token
+  n.pump(10, main=3, gas=25., heartbeat=False)
+  n.pump(HOST_LAG, main=5, gas=25., heartbeat=False)
+  n.pump(20, main=5, gas=25., mask=1)
+  assert n.safety.get_controls_allowed()
+  n.pump(20, main=4, mask=1)
+  brake_to_standby(n)
+  assert n.safety.aol_get_permission_mask() == 1
+  n.pump(30, main=3, mask=1)
+  assert n.safety.aol_get_permission_mask() == 1
+
+
+@pytest.mark.parametrize('word', WORDS)
+def test_activation_with_gas_held_until_disengaged_never_arms(ford_native, word):
+  n = ford_native
+  select(n, word)
+  n.pump(40, main=3, heartbeat=False)
+  n.pump(10, main=3, gas=25., heartbeat=False)
+  n.pump(20, main=5, gas=25., mask=1)
+  n.pump(10, main=3, gas=25., mask=1)  # paused before the pedal was released
+  n.pump(20, main=3, mask=1)
+  assert not n.safety.get_controls_allowed()
+  assert n.safety.aol_get_permission_mask() == 0

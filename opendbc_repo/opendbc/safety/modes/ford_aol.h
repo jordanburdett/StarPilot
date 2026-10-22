@@ -17,6 +17,7 @@ static uint8_t ford_aol_eps = 0U;
 static bool ford_aol_lka_ready = false;
 static bool ford_aol_owned = false;
 static uint32_t ford_aol_accepted_ts = 0U;
+static bool ford_aol_engagement_pending = false;
 
 static void ford_aol_clear(void) {
   ford_aol_token = false;
@@ -25,6 +26,7 @@ static void ford_aol_clear(void) {
   ford_aol_main_neutral = false;
   ford_aol_button_neutral = false;
   ford_aol_owned = false;
+  ford_aol_engagement_pending = false;
 }
 
 static void ford_aol_reset(void) {
@@ -171,9 +173,18 @@ static void ford_aol_rx(const CANPacket_t *msg) {
 // A real ordinary cruise rising edge can arm retained lateral intent without
 // requiring a historical MAIN/LKAS cycle. This never grants ordinary controls
 // or longitudinal permission; the current request/heartbeat/RX gates still own TX.
+// An activation made with the accelerator held arms once the pedal is released
+// while that same activation is still engaged; it never arms while gas is held.
 static void ford_aol_full_engagement(bool cruise_rising) {
-  if (ford_aol_enabled && cruise_rising && controls_allowed && !brake_pressed && !gas_pressed &&
+  if (cruise_rising) {
+    ford_aol_engagement_pending = true;
+  }
+  if (!cruise_engaged_prev) {
+    ford_aol_engagement_pending = false;
+  }
+  if (ford_aol_enabled && ford_aol_engagement_pending && controls_allowed && !brake_pressed && !gas_pressed &&
       !relay_malfunction && aol_rx_healthy() && ford_aol_main_available && ford_aol_drive && (ford_aol_eps == 0U)) {
+    ford_aol_engagement_pending = false;
     ford_aol_token = true;
     ford_aol_token_claimed = false;
     ford_aol_token_ts = microsecond_timer_get();
