@@ -55,7 +55,7 @@ class TestFordAolDriverIntent(unittest.TestCase):
     address, data, bus = self.packer.make_can_msg(name, 0, values)
     self.assertTrue(self.safety.safety_rx_hook(libsafety_py.make_CANPacket(address, bus, data)))
 
-  def pump(self, count, *, main=3, tja=False, gear=3, eps=0, mask=0, heartbeat=True, speed=10., curvature=0.):
+  def pump(self, count, *, main=3, tja=False, gear=3, eps=0, mask=0, heartbeat=True, speed=10., curvature=0., gas=0., brake=False):
     gear_name, gear_signal = ('TransGearData', 'GearLvrPos_D_Actl') if self.word == 8 else (
       ('Gear_Shift_by_Wire_FD1', 'TrnRng_D_RqGsm') if self.word == 10 else ('PowertrainData_10', 'TrnRng_D_Rq'))
     for _ in range(count):
@@ -66,8 +66,8 @@ class TestFordAolDriverIntent(unittest.TestCase):
         ('BrakeSysFeatures', 50, {'Veh_V_ActlBrk': speed * 3.6, 'VehVActlBrk_D_Qf': 3, 'VehVActlBrk_No_Cnt': (self.tick // 2) % 16}),
         ('EngVehicleSpThrottle2', 50, {'Veh_V_ActlEng': speed * 3.6, 'VehVActlEng_D_Qf': 3}),
         ('Yaw_Data_FD1', 100, {'VehYaw_W_Actl': curvature * speed, 'VehYawWActl_D_Qf': 3, 'VehRollYaw_No_Cnt': self.tick % 256}),
-        ('EngBrakeData', 10, {'BpedDrvAppl_D_Actl': 1, 'CcStat_D_Actl': main}),
-        ('EngVehicleSpThrottle', 100, {'ApedPos_Pc_ActlArb': 0}),
+        ('EngBrakeData', 10, {'BpedDrvAppl_D_Actl': 2 if brake else 1, 'CcStat_D_Actl': main}),
+        ('EngVehicleSpThrottle', 100, {'ApedPos_Pc_ActlArb': gas}),
         ('DesiredTorqBrk', 50, {'VehStop_D_Stat': 0}),
         ('Steering_Data_FD1', 10, {'TjaButtnOnOffPress': int(tja)}),
         ('EPAS_INFO', 50, {'SteeringColumnTorque': 0, 'EPAS_Failure': eps}),

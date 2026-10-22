@@ -46,6 +46,19 @@ static void ford_aol_host_request(uint8_t mask) {
   ford_aol_request_seen |= mask != 0U;
 }
 
+// Retire a lost host session once. A later physical edge starts the next
+// session: its token must survive the status reads that precede the host's
+// engaged heartbeat, and still expires if the host never claims it.
+static void ford_aol_retire_lost_session(void) {
+  if (ford_aol_session && !heartbeat_engaged) {
+    // Ordinary LONG cannot revive solely because a stale source/host recovers.
+    // A fresh real PCM cruise activation is required after this withdrawal.
+    if ((ford_aol_param & 1U) != 0U) { controls_allowed = false; }
+    ford_aol_clear();
+    ford_aol_session = false;
+  }
+}
+
 static uint8_t ford_aol_request_mask(void) {
   uint8_t result = 0U;
   const bool expired = ford_aol_request_seen &&
@@ -53,8 +66,8 @@ static uint8_t ford_aol_request_mask(void) {
   const bool token_expired = ford_aol_token && !ford_aol_token_claimed &&
     (safety_get_ts_elapsed(microsecond_timer_get(), ford_aol_token_ts) > AOL_HOST_REQUEST_TIMEOUT_US);
   const bool long_profile = (ford_aol_param & 1U) != 0U;
-  const bool lost_session = ford_aol_session && !heartbeat_engaged;
-  if (!aol_rx_healthy() || relay_malfunction || expired || lost_session) {
+  ford_aol_retire_lost_session();
+  if (!aol_rx_healthy() || relay_malfunction || expired) {
     // Ordinary LONG cannot revive solely because a stale source/host recovers.
     // A fresh real PCM cruise activation is required after this withdrawal.
     if (long_profile) { controls_allowed = false; }
@@ -99,6 +112,8 @@ static uint8_t ford_aol_permission_mask(void) {
 
 static void ford_aol_rx(const CANPacket_t *msg) {
   if (ford_aol_enabled && (msg->bus == 0U)) {
+    // Retire the old session before interpreting a new physical edge.
+    ford_aol_retire_lost_session();
     if (msg_matches(msg, 0x165U, 0U, 8U)) {
       const unsigned int state = msg->data[1] & 7U;
       const bool main_available = (state == 3U) || (state == 4U) || (state == 5U);
