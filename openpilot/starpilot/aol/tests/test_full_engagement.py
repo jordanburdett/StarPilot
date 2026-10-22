@@ -191,3 +191,38 @@ def test_auxiliary_off_after_pending_observation_cannot_be_undone_by_activation(
   assert not owner.allowed_latch
   observe(owner, cs, 3)
   assert not owner.allowed_latch
+
+
+def ford_main_off_to_engaged(owner):
+  """MAIN off to engaged in one frame while the synthesized MAIN pulse cannot arm by itself."""
+  off = state()
+  off.cruiseState.available = False
+  owner.update(off, now_ns=1, fault_active=False)
+  observe(owner, off, 1, enabled=False, active=False)
+  invalid = state()
+  invalid.cruiseState.available = False
+  invalid.canValid = False
+  owner.update(invalid, now_ns=2, fault_active=False)  # the pulse frame cannot be a neutral-seen gesture
+  engaged = state()
+  engaged.cruiseState.enabled = True
+  owner.update(engaged, now_ns=3, fault_active=False)
+  observe(owner, engaged, 3, enabled=False, active=False)
+  assert not owner.allowed_latch
+  owner.update(engaged, now_ns=4, fault_active=False)
+  observe(owner, engaged, 4)
+
+
+def test_mach_e_main_pulse_does_not_consume_ordinary_activation():
+  # With MAIN auto-managed the synthesized pulse is not a held driver gesture, so when
+  # its own gesture arm is missed the ordinary activation still arms lateral.
+  owner = FordCardIntent(CP, replace(SETTINGS, lkas_action=0))
+  assert owner.auto_main
+  ford_main_off_to_engaged(owner)
+  assert owner.allowed_latch and not owner.pause_lateral
+
+
+def test_configured_ford_main_toggle_still_withdraws_ordinary_activation():
+  owner = FordCardIntent(CP, replace(SETTINGS, lkas_action=0, main_action=AOL_TOGGLE))
+  assert not owner.auto_main
+  ford_main_off_to_engaged(owner)
+  assert not owner.allowed_latch

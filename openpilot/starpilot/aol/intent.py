@@ -201,6 +201,10 @@ class AolCardIntent:
     self._engagement_consumed = True
     self._engagement_withdrawal_ns = max(self._engagement_withdrawal_ns, self._engagement_observed_ns)
 
+  def _main_gesture_held(self) -> bool:
+    """A held MAIN gesture withdraws a pending ordinary activation."""
+    return self._main_held
+
   def observe_full_engagement(self, CS, *, enabled: bool, active: bool, source_ns: int,
                               observation_valid: bool, now_ns: int, fault_active: bool, native_rejection_ns: int = 0) -> None:
     """Consume one successful activation per freshly observed enabled epoch.
@@ -212,7 +216,7 @@ class AolCardIntent:
     manual = any(event.type not in (ButtonType.setCruise, ButtonType.accelCruise,
                                      ButtonType.decelCruise, ButtonType.resumeCruise)
                  for event in CS.buttonEvents)
-    blocked = bool(manual or self._main_held or self._lkas_held or
+    blocked = bool(manual or self._main_gesture_held() or self._lkas_held or
                    any(self._held.values()) or getattr(self, 'cancel_held', False) or
                    getattr(self, 'screen_held', False) or getattr(self, '_lkas_down', False) or
                    getattr(self, '_engagement_manual_withdrawal', False) or

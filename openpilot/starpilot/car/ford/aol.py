@@ -69,6 +69,12 @@ class FordCardIntent(AolCardIntent):
     state.buttonEvents = events
     super().update(state.as_reader(), **kwargs)
 
+  def _main_gesture_held(self):
+    # With MAIN auto-managed, the MAIN pulse is synthesized from the MAIN level
+    # and only ever arms (MAIN off clears the latch). It is not a held driver
+    # gesture, so MAIN off to engaged in one frame keeps the ordinary activation.
+    return self._main_held and not self.auto_main
+
 
 def create_intent(cp, settings):
   return FordCardIntent(cp, settings)
